@@ -7,6 +7,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import ssl
 from typing import Any
 
 from config import config
@@ -39,8 +40,13 @@ def _http_request_json(
 
     req = urllib.request.Request(url, method=method.upper(), headers=req_headers, data=data)
 
+    skip_verify = True
+    ssl_context = None
+    if url.lower().startswith("https://"):
+        ssl_context = ssl._create_unverified_context() if skip_verify else ssl.create_default_context()
+
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout, context=ssl_context) as resp:
             status = resp.status
             body = resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
