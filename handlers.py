@@ -88,6 +88,9 @@ def _format_payment_block(p: dict[str, Any]) -> str:
 
 
 def _format_payment_details(p: dict[str, Any]) -> str:
+    if p.get("status") == 'closed':
+        return 'Платеж <b>закрыт</b>'
+
     payment_id = p.get("id", "—")
     tron_address = p.get("tron_address", "—")
     status = _status_ru(p.get("status"))
