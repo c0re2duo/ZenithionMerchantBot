@@ -1,0 +1,6 @@
+.env
+api_tokens.json
+logs.log
+.idea/*
+__pycache__/*
+*/__pycache__/*
