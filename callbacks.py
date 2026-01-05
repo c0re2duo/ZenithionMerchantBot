@@ -10,6 +10,7 @@ class Cb:
     WITHDRAW = "withdraw"
     CHECK_PAYMENT = "check_payment"
     DELETE_MESSAGE = "delete_message"
+    BACK_TO_USER_MENU = "back_to_user_menu"
     CANCEL = "cancel"
 
 

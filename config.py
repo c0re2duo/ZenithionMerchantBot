@@ -12,6 +12,7 @@ class Config:
     bot_token: str = os.getenv("BOT_TOKEN", "")
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     user_tokens_file: str = os.getenv("USER_TOKENS_FILE", "api_tokens.json")
+    skip_verify: str = bool(os.getenv("SKIP_VERIFY", False))
 
     merchant_api_url_start: str = os.getenv("MERCHANT_API_URL_START", "http://127.0.0.1:8000/zenithion/api/v1/")
 

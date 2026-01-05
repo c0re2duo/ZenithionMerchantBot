@@ -8,6 +8,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import ssl
+import socket
 from typing import Any
 
 from config import config
@@ -22,6 +23,16 @@ class ZenithionPayApiError(Exception):
         self.payload = payload
         self.url = url
         super().__init__(f"ZenithionPay API error {status} for {url}: {payload}")
+
+
+# Простой in-memory кэш только для GET JSON (на процесс)
+_GET_JSON_CACHE: dict[tuple[str, str], tuple[float, Any]] = {}
+_GET_JSON_LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
+
+
+def _cache_key_for_get(url: str, headers: dict[str, str]) -> tuple[str, str]:
+    api_key = (headers or {}).get("X-API-Key", "")
+    return url, api_key
 
 
 def _http_request_json(
@@ -52,6 +63,12 @@ def _http_request_json(
     except urllib.error.HTTPError as e:
         status = getattr(e, "code", 0) or 0
         body = e.read().decode("utf-8", errors="replace") if hasattr(e, "read") else ""
+    except (TimeoutError, socket.timeout):
+        status = 503
+        body = json.dumps({"error": "timeout"})
+    except urllib.error.URLError as e:
+        status = 503
+        body = json.dumps({"error": "network_error", "reason": str(getattr(e, "reason", e))})
 
     try:
         return status, json.loads(body)
@@ -76,25 +93,55 @@ async def get_json(
     headers: dict[str, str],
     timeout: float = 10.0,
     params: dict[str, Any] | None = None,
+    *,
+    refresh: bool = False,
+    cache_ttl: float = 10.0,
 ) -> Any:
     url = _with_query_params(_join_url(config.merchant_api_url_start, endpoint), params)
     started = time.perf_counter()
 
-    try:
-        status, payload = await asyncio.to_thread(_http_request_json, "GET", url, headers, timeout, None)
-    except Exception:
+    cache_key = _cache_key_for_get(url, headers)
+    now = time.time()
+
+    if not refresh and cache_ttl > 0:
+        cached = _GET_JSON_CACHE.get(cache_key)
+        if cached is not None:
+            saved_at, payload = cached
+            if (now - saved_at) <= cache_ttl:
+                elapsed_ms = (time.perf_counter() - started) * 1000.0
+                logger.info("GET %s -> cache (%.1f ms)", url, elapsed_ms)
+                return payload
+
+    lock = _GET_JSON_LOCKS.setdefault(cache_key, asyncio.Lock())
+    async with lock:
+        # re-checking after waiting for lock
+        now = time.time()
+        if not refresh and cache_ttl > 0:
+            cached = _GET_JSON_CACHE.get(cache_key)
+            if cached is not None:
+                saved_at, payload = cached
+                if (now - saved_at) <= cache_ttl:
+                    elapsed_ms = (time.perf_counter() - started) * 1000.0
+                    logger.info("GET %s -> cache (%.1f ms)", url, elapsed_ms)
+                    return payload
+
+        try:
+            status, payload = await asyncio.to_thread(_http_request_json, "GET", url, headers, timeout, None)
+        except Exception:
+            elapsed_ms = (time.perf_counter() - started) * 1000.0
+            logger.exception("GET %s failed (%.1f ms)", url, elapsed_ms)
+            raise
+
         elapsed_ms = (time.perf_counter() - started) * 1000.0
-        logger.exception("GET %s failed (%.1f ms)", url, elapsed_ms)
-        raise
 
-    elapsed_ms = (time.perf_counter() - started) * 1000.0
+        if 200 <= int(status) <= 299:
+            logger.info("GET %s -> %s (%.1f ms)", url, status, elapsed_ms)
+            if cache_ttl > 0:
+                _GET_JSON_CACHE[cache_key] = (time.time(), payload)
+            return payload
 
-    if 200 <= int(status) <= 299:
-        logger.info("GET %s -> %s (%.1f ms)", url, status, elapsed_ms)
-        return payload
-
-    logger.warning("GET %s -> %s (%.1f ms), payload=%r", url, status, elapsed_ms, payload)
-    raise ZenithionPayApiError(status=int(status), payload=payload, url=url)
+        logger.warning("GET %s -> %s (%.1f ms), payload=%r", url, status, elapsed_ms, payload)
+        raise ZenithionPayApiError(status=int(status), payload=payload, url=url)
 
 
 async def post_json(
