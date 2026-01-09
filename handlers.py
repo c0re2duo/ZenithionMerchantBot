@@ -124,7 +124,7 @@ def _format_payment_details(p: dict[str, Any]) -> str:
             deposits_lines.append(
                 "• "
                 f"<i>ID</i>: <code>{html.escape(str(d_id))}</code>  •  "
-                f"⏱️: <b>{html.escape(str(d_created))}</b>\n"
+                f"  ⏱️: <b>{html.escape(str(d_created))}</b>\n"
                 f"  💵: <b>{html.escape(str(d_amount))} USDT</b>\n"
                 f"  <i>TXID</i>: <code>{html.escape(str(d_txid))}</code>"
             )
@@ -222,7 +222,7 @@ async def payments_history_callback(callback: CallbackQuery, api_key: str) -> No
         response_data = await get_json(
             "payments/history",
             {"X-API-Key": api_key},
-            params={'limit': 10},
+            params={'limit': 10, 'with_closed': False},
             cache_ttl=10
         )
     except ZenithionPayApiError as e:
@@ -245,7 +245,7 @@ async def payments_history_callback(callback: CallbackQuery, api_key: str) -> No
         if isinstance(item, dict):
             blocks.append(_format_payment_block(item))
 
-    text = f"Последние {response_data.get('count', '?')} платежей:\n\n"
+    text = f"Последние {response_data.get('count', '?')} платежей (Без закрытых):\n\n"
     block_text = "\n\n".join(blocks) if blocks else "Платежи не найдены."
     text += block_text
     await callback.message.answer(f"{text}", reply_markup=get_inline_kb("cansel"))
@@ -311,7 +311,7 @@ async def withdraw_input(message: Message, state: FSMContext, api_key: str) -> N
     if not _TRON_ADDRESS_RE.fullmatch(to_address):
         await message.answer(
             "Неправильный адрес TRON.\n"
-            "Пример формата: <code>TKTgEtjonYPdCWDs7bUb9dUUwYikceDabx</code>\n"
+            "Пример формата: <b>TKTgEtjonYPdCWDs7bUb9dUUwYikceDabx</b>\n"
             "Отправь адрес ещё раз.",
             reply_markup=get_inline_kb("cansel"),
         )
@@ -336,11 +336,20 @@ async def withdraw_input(message: Message, state: FSMContext, api_key: str) -> N
         await state.clear()
         return
 
-    ok = isinstance(payload, dict) and payload.get("status") is True
-    if ok:
-        await message.answer(f"✅ Вывод успешно создан. Ожидайте пополнение на {to_address} <b>(не дольше часа)</b>.", reply_markup=get_inline_kb("delete_message"))
+    withdraw_fail_text = f"❌ Не удалось выполнить вывод. Обратитесь в техподдержку."
+
+    if isinstance(payload, dict):
+        success = payload.get("success") is True
+        if success:
+            await message.answer(f"✅ Вывод успешно создан. Ожидайте пополнение на {to_address} <b>(не дольше часа)</b>.", reply_markup=get_inline_kb("delete_message"))
+        else:
+            status = payload.get("status")
+            if status == 'under_minimum_withdrawal_amount':
+                await message.answer('❕ Сумма к выводу меньше допустимого минимума. Совершайте вывод когда сумма будет превышать порог.', reply_markup=get_inline_kb("delete_message"))
+            else:
+                await message.answer(withdraw_fail_text, reply_markup=get_inline_kb("delete_message"))
     else:
-        await message.answer(f"❌ Не удалось выполнить вывод.\n\nОтвет:\n{payload}", reply_markup=get_inline_kb("delete_message"))
+        await message.answer(withdraw_fail_text, reply_markup=get_inline_kb("delete_message"))
 
     await state.clear()
     await message.delete()
