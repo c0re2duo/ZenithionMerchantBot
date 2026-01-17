@@ -1,20 +1,28 @@
+import decimal
 import json
+import logging
 from datetime import datetime
 from typing import Any
 import html
 import re
 
-from aiogram import Dispatcher
+from aiogram import Dispatcher, Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from aiohttp import web
 
 from callbacks import Cb, is_cb
+from config import config
 from keyboards.inline import get_inline_kb
 from filters import ApiTokenFilter
 from states import PaymentCheckState, WithdrawState
 from zenithionpay_client import ZenithionPayApiError, get_json, post_json
+
+
+bot: Bot
+
 
 _service_unavailable = "Сервис временно недоступен. Попробуйте позже"
 
@@ -355,7 +363,30 @@ async def withdraw_input(message: Message, state: FSMContext, api_key: str) -> N
     await message.delete()
 
 
-def register_handlers(dp: Dispatcher) -> None:
+async def new_deposit_notify(address: str, amount: decimal.Decimal, new_status: str, merchant_api_token: str) -> None:
+    admins_ids = config.api_tokens.get(merchant_api_token, [])
+
+    text = f'''
+💸🎉 Новый депозит.
+
+Адрес: <code><b>{address}</b></code>
+Сумма: <b><i>{amount}</i></b>
+
+Статус платежа: {_status_ru(new_status)}
+'''
+
+    for admin_id in admins_ids:
+        try:
+            await bot.send_message(admin_id, text)
+        except TelegramBadRequest as e:
+            logging.warning(f"Failed to send message to admin: {e}",)
+    logging.info(f"New deposit notifications sent.")
+
+
+def register_handlers(dp: Dispatcher, actual_bot: Bot) -> None:
+    global bot
+    bot = actual_bot
+
     dp.message.register(
         start_handler,
         CommandStart(),

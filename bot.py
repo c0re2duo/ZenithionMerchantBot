@@ -6,9 +6,11 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums.parse_mode import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiohttp import web
 
-from config import config
+from config import config, Config
 from handlers import register_handlers
+from webhook_handlers import handle_payment_webhook
 
 
 def setup_logging(*, log_to_file: bool) -> None:
@@ -33,7 +35,19 @@ async def main(*, log_to_file: bool) -> None:
     bot = Bot(token=config.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
 
-    register_handlers(dp)
+    register_handlers(dp, bot)
+
+    # Setting up a web server for webhooks
+    app = web.Application()
+    app.router.add_post("/webhook", handle_payment_webhook,)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, Config.web_server_host, Config.web_server_port)
+
+    # Launching the server in the background
+    await site.start()
+    logging.info(f"The web server is running on {Config.web_server_host}:{Config.web_server_port}")
 
     logging.info("Starting bot polling...")
     try:
