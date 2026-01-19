@@ -10,12 +10,12 @@ async def handle_payment_webhook(request):
     try:
         data = await request.json()
 
+        logging.info(f"Payment webhook: {data}")
+
         api_key = request.headers.get("X-API-Key")
 
         if not api_key or (api_key and api_key != config.webhooks_api_key):
             return web.Response(text="Unauthorized", status=403)
-
-        logging.info(f"New webhook.")
 
         if data.get("message", "") == "new_deposit":
             await new_deposit_notify(data['address'], data['amount'], data['new_status'], data['merchant_api_token'])

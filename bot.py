@@ -13,6 +13,7 @@ from handlers import register_handlers
 from webhook_handlers import handle_payment_webhook
 
 
+# TODO: make setting log file path
 def setup_logging(*, log_to_file: bool) -> None:
     handlers = None
     if log_to_file:

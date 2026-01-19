@@ -366,8 +366,12 @@ async def withdraw_input(message: Message, state: FSMContext, api_key: str) -> N
 async def new_deposit_notify(address: str, amount: decimal.Decimal, new_status: str, merchant_api_token: str) -> None:
     admins_ids = config.api_tokens.get(merchant_api_token, [])
 
+    if not admins_ids:
+        logging.warning(f"Merchant API token not found: {merchant_api_token}")
+        return
+
     text = f'''
-💸🎉 Новый депозит.
+💸 Новый депозит.
 
 Адрес: <code><b>{address}</b></code>
 Сумма: <b><i>{amount}</i></b>
